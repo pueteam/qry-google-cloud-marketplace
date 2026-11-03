@@ -577,3 +577,19 @@ spec:
       {{- toYaml .labels | nindent 6 }}
 {{- end }}
 {{- end }}
+
+{{/*
+Checksums that make a changed secret replace the pods reading it (they read it
+only at start; a password changed with helm upgrade left the backend on the old
+one). The backend secret carries the database and Redis URLs, so it covers both
+passwords. Redis gets its password's alone, so other secret changes do not
+restart it and drop its queues. Truncated hashes: nothing to read back.
+*/}}
+{{- define "qry.secretsChecksum" -}}
+{{- include (print $.Template.BasePath "/secrets/backend-secrets.yaml") . | sha256sum | trunc 16 | quote -}}
+{{- end }}
+
+{{- define "qry.redisPasswordChecksum" -}}
+{{- include "qry.resolvePasswords" . -}}
+{{- .Values.redis.auth.password | default "" | sha256sum | trunc 16 | quote -}}
+{{- end }}
