@@ -7,7 +7,7 @@ settings, so the same installation can be made from the command line.
 
 The full guide - what the installation asks for and sets up, the first
 administrator, the license, backups, updates, scaling and uninstalling - is at
-[docs.qry.dev](https://docs.qry.dev/admin-guide/operations/google-cloud-marketplace).
+[docs.qry.dev](https://docs.qry.dev/docs/admin-guide/operations/google-cloud-marketplace).
 
 ## Installing from the command line
 
