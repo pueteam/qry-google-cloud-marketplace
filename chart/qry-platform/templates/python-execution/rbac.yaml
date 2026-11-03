@@ -1,0 +1,164 @@
+{{- if .Values.pythonExecution.enabled }}
+{{- if .Values.pythonExecution.rbac.create }}
+---
+# ServiceAccount for python executor pods
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.pythonExecution.serviceAccountName }}
+  namespace: {{ include "qry.pythonExecution.namespace" . }}
+  {{- with .Values.pythonExecution.serviceAccountAnnotations }}
+  # Workload identity for the code Qry runs (e.g. reading the customer's
+  # storage as a managed identity instead of a key).
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+# The code people run uses this account and never calls the Kubernetes API:
+# no token in its pods. It once held python-executor-role through its own
+# binding, so a notebook could create pods and exec into other people's
+# sessions with the token mounted in every pod (measured on ixenlab). The
+# backend and workers, which create and exec into these pods, have their own
+# bindings below; cloud workload identity injects its own token.
+automountServiceAccountToken: false
+{{- if .Values.imagePullSecret.create }}
+imagePullSecrets:
+  - name: {{ .Values.imagePullSecret.name }}
+{{- end }}
+---
+# Role for K8s Python execution (Jobs for code execution)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: python-executor-role
+  namespace: {{ include "qry.pythonExecution.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+    app.kubernetes.io/name: python-executor
+rules:
+- apiGroups: ["batch"]
+  resources: ["jobs", "jobs/status"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "pods/status", "configmaps"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  # Both verbs, because the two exec paths use different HTTP methods: kubectl
+  # (and runtime_manager) POST, which RBAC checks as "create", while the
+  # kubernetes Python client used as fallback in kubectl_wrapper calls
+  # connect_get_namespaced_pod_exec, a GET, checked as "get". Granting only
+  # "create" left that fallback permanently 403 -- and the client crashes while
+  # formatting its own 403 (e.body is None), so it surfaced as
+  # "'NoneType' object has no attribute 'decode'" rather than as Forbidden.
+  # No new capability: create pods/exec already allows running arbitrary
+  # commands in these pods; get is the same operation over the other method.
+  verbs: ["get", "create"]
+---
+# Role for Python runtime management (Deployments + Services for interactive sessions)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: runtime-manager-role
+  namespace: {{ include "qry.pythonExecution.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+    app.kubernetes.io/name: runtime-manager
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "create", "delete", "patch"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+# user_home feature (>=v0.118): pod_helpers.ensure_tenant_secret performs
+# get + create/update on the qry-home-tenant-creds Secret in this namespace.
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "create", "update", "patch"]
+---
+# RoleBinding: qry-backend-sa -> runtime-manager-role
+# This allows the backend to create Deployments and Services for Python runtimes
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: runtime-manager-binding
+  namespace: {{ include "qry.pythonExecution.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.serviceAccount.name }}
+  namespace: {{ include "qry.namespace" . }}
+roleRef:
+  kind: Role
+  name: runtime-manager-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# RoleBinding: qry-backend-sa -> python-executor-role
+# This allows the backend to create Jobs in the python-execution namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backend-python-executor
+  namespace: {{ include "qry.pythonExecution.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.serviceAccount.name }}
+  namespace: {{ include "qry.namespace" . }}
+roleRef:
+  kind: Role
+  name: python-executor-role
+  apiGroup: rbac.authorization.k8s.io
+{{- if .Values.celeryWorker.serviceAccount.name }}
+---
+# RoleBinding: celery-worker-sa -> python-executor-role
+# This allows celery workers to create Jobs for programmatic tool callbacks
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: worker-python-executor
+  namespace: {{ include "qry.pythonExecution.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.celeryWorker.serviceAccount.name }}
+  namespace: {{ include "qry.namespace" . }}
+roleRef:
+  kind: Role
+  name: python-executor-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# RoleBinding: celery-worker-sa -> runtime-manager-role
+# This allows celery workers to manage runtimes for scheduled notebook execution
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: celery-runtime-manager-binding
+  namespace: {{ include "qry.pythonExecution.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.celeryWorker.serviceAccount.name }}
+  namespace: {{ include "qry.namespace" . }}
+roleRef:
+  kind: Role
+  name: runtime-manager-role
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+{{- end }}
+{{- end }}

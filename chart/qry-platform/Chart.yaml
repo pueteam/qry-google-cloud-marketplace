@@ -1,0 +1,35 @@
+apiVersion: v2
+name: qry-platform
+description: |
+  Qry Analytics Platform - AI-powered data analysis and querying.
+  Complete deployment including backend, frontend, workers, and supporting services.
+
+type: application
+version: 0.52.0
+appVersion: "0.199.1"
+
+home: https://qry.dev
+icon: https://qry.dev/favicon.svg
+sources:
+  - https://github.com/pueteam/qry-google-cloud-marketplace
+
+maintainers:
+  - name: IXEN
+    url: https://qry.dev
+
+keywords:
+  - analytics
+  - ai
+  - data
+  - sql
+  - bigquery
+  - llm
+  - rag
+  - data-analysis
+
+annotations:
+  category: Analytics
+  licenses: Private
+
+# No external dependencies - we deploy our own Redis and PostgreSQL
+# This gives us full control over configuration and pgvector support

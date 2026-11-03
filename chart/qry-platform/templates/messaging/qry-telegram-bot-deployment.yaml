@@ -1,0 +1,100 @@
+{{- if (dig "enabled" false (.Values.telegramBot | default dict)) }}
+{{/*
+  Telegram bot for the messaging gateway (issue #262).
+
+  The pod is always running. It supervises a long-poller that idles
+  whenever messaging.config.telegram_enabled is false or the bot
+  token is empty, and starts polling once an admin sets both via
+  the Settings UI. Token rotation reconciles in <30s without a
+  rollout — see app/messaging/telegram_bot.py for the supervisor
+  state machine.
+
+  replicas is hardcoded to 1: Telegram only allows one long-poller
+  per bot token, two pods would race the getUpdates offset.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qry-telegram-bot
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.telegramBot.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate: we must NOT have two pods overlapping
+    # because the Telegram API rejects the second poller with 409 Conflict.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "qry.telegramBot.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "qry.telegramBot.selectorLabels" . | nindent 8 }}
+        {{- with $.Values.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
+        {{- if $.Values.networkPolicies.enabled }}
+        qry.ixen.ai/trusted: "true"
+        {{- end }}
+      {{- with $.Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "qry.backendPodSecurityContext" . | nindent 6 }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      # Never talks to the Kubernetes API; don't hand it a token (issue #407).
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        {{- include "qry.imagePullSecrets" . | nindent 8 }}
+      containers:
+        - name: telegram-bot
+          image: {{ include "qry.backendImage" . }}
+          {{- include "qry.backendContainerSecurityContext" . | nindent 10 }}
+          imagePullPolicy: {{ include "qry.imagePullPolicy" . }}
+          command:
+            - python
+            - -m
+            - app.messaging.telegram_bot
+          env:
+            - name: ENVIRONMENT
+              value: {{ .Values.global.environment }}
+          # DATABASE_URL, REDIS_URL, JWT_SECRET_KEY come from the same
+          # secret as the backend — the bot reads messaging.config from
+          # DB and the chat_id↔token cache lives in Redis. No bot-specific
+          # Secret: the Telegram bot token is stored in
+          # system_configuration.messaging.config and edited via the UI.
+          envFrom:
+            - secretRef:
+                name: qry-backend-secrets
+            {{- include "qry.existingSecretEnvFrom" $ | nindent 12 }}
+          resources:
+            {{- toYaml .Values.telegramBot.resources | nindent 12 }}
+          # Liveness: the supervisor's asyncio loop must be ticking. The
+          # bot touches /tmp/heartbeat at the top of every supervisor
+          # iteration (period = _CONFIG_CHECK_INTERVAL, ~30s), so a
+          # stale file flags a wedged event loop. We deliberately do
+          # NOT probe Telegram itself — the bot can legitimately be
+          # idle for hours when telegram_enabled=false, and a transient
+          # Telegram outage must not crashloop the pod.
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - test -n "$(find /tmp/heartbeat -mmin -2 -type f)"
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - test -n "$(find /tmp/heartbeat -mmin -2 -type f)"
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+{{- end }}

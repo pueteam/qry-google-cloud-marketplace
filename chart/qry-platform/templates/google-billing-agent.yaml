@@ -1,0 +1,134 @@
+{{- /*
+Google Cloud Marketplace usage reporting for a plan billed by Google: Google's
+metering agent (ubbagent) sends installation time to Service Control, as
+Google's billing integration guide describes. Its own Deployment with one
+replica and Recreate: a sidecar on the backend would report once per backend
+replica, and a rolling update would briefly run two. It talks to Google only:
+no AGENT_LOCAL_PORT, so its HTTP API (which takes usage reports from anyone
+who reaches it) never starts - in a marketplace installation people's code
+runs in the same namespace and could have raised the customer's bill - and a
+network policy admits no connection to it.
+*/}}
+{{- $g := .Values.googleMarketplace }}
+{{- if and $g.enabled $g.reportingSecret $g.billing.serviceName }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-billing-agent
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: billing-agent
+data:
+  config.yaml: |
+    identities:
+    - name: gcp
+      gcp:
+        encodedServiceAccountKey: $AGENT_ENCODED_KEY
+    metrics:
+    - name: {{ $g.billing.metric }}
+      type: int
+      endpoints:
+      - name: on_disk
+      - name: servicecontrol
+      passthrough: {}
+    endpoints:
+    - name: on_disk
+      disk:
+        reportDir: /var/lib/ubbagent/reports
+        expireSeconds: 3600
+    - name: servicecontrol
+      servicecontrol:
+        identity: gcp
+        serviceName: {{ $g.billing.serviceName }}
+        consumerId: $AGENT_CONSUMER_ID
+    sources:
+    - name: {{ $g.billing.metric }}_heartbeat
+      heartbeat:
+        metric: {{ $g.billing.metric }}
+        intervalSeconds: {{ $g.billing.intervalSeconds }}
+        value:
+          int64Value: {{ $g.billing.intervalSeconds }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-billing-agent
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: billing-agent
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: billing-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: billing-agent
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: ubbagent
+        image: {{ $g.billing.image }}
+        env:
+        - name: AGENT_CONFIG_FILE
+          value: /etc/ubbagent/config.yaml
+        - name: AGENT_STATE_DIR
+          value: /var/lib/ubbagent
+        - name: AGENT_ENCODED_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $g.reportingSecret }}
+              key: reporting-key
+        - name: AGENT_CONSUMER_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ $g.reportingSecret }}
+              key: consumer-id
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        volumeMounts:
+        - name: config
+          mountPath: /etc/ubbagent
+        - name: state
+          mountPath: /var/lib/ubbagent
+      volumes:
+      - name: config
+        configMap:
+          name: {{ .Release.Name }}-billing-agent
+      - name: state
+        emptyDir: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-billing-agent-no-ingress
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: billing-agent
+  policyTypes: [Ingress]
+{{- end }}

@@ -1,0 +1,83 @@
+{{- include "qry.resolvePasswords" . }}
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.redis.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "qry.redis.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "qry.redis.selectorLabels" . | nindent 8 }}
+        {{- with $.Values.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
+      {{- with $.Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.redisSecurity.pod }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Never talks to the Kubernetes API; don't hand it a token (issue #407).
+      automountServiceAccountToken: false
+      containers:
+      - name: redis
+        image: {{ include "qry.thirdPartyImage" .Values.redis.image }}
+        {{- with .Values.redisSecurity.container }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- if .Values.redis.auth.password }}
+        args: ["--requirepass", "$(REDIS_PASSWORD)"]
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: qry-redis-auth
+              key: password
+        {{- end }}
+        ports:
+        - containerPort: 6379
+        resources:
+          {{- toYaml .Values.redis.resources | nindent 10 }}
+        livenessProbe:
+          tcpSocket:
+            port: 6379
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            {{- if .Values.redis.auth.password }}
+            - sh
+            - -c
+            - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping
+            {{- else }}
+            - redis-cli
+            - ping
+            {{- end }}
+          initialDelaySeconds: 5
+          periodSeconds: 5
+{{- end }}
+
+{{- if and .Values.redis.enabled .Values.redis.auth.password }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: qry-redis-auth
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  password: {{ .Values.redis.auth.password | quote }}
+{{- end }}

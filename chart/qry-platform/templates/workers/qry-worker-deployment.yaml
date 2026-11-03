@@ -1,0 +1,93 @@
+{{- if .Values.qryWorker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qry-worker
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.qryWorker.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.qryWorker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "qry.qryWorker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "qry.qryWorker.selectorLabels" . | nindent 8 }}
+        {{- with $.Values.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
+        {{- if $.Values.networkPolicies.enabled }}
+        qry.ixen.ai/trusted: "true"
+        {{- end }}
+      {{- with $.Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "qry.backendPodSecurityContext" . | nindent 6 }}
+      {{- include "qry.topologySpread" (dict "root" . "replicas" .Values.qryWorker.replicaCount "labels" (fromYaml (include "qry.qryWorker.selectorLabels" .))) | nindent 6 }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      imagePullSecrets:
+        {{- include "qry.imagePullSecrets" . | nindent 8 }}
+      containers:
+      - name: qry-worker
+        image: {{ include "qry.backendImage" . }}
+        {{- include "qry.backendContainerSecurityContext" . | nindent 8 }}
+        imagePullPolicy: {{ include "qry.imagePullPolicy" . }}
+        command:
+        - python
+        - -m
+        - app.worker
+        ports:
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        - name: ENVIRONMENT
+          value: {{ .Values.global.environment }}
+        - name: WORKER_MAX_CONCURRENT_TASKS
+          value: "{{ .Values.qryWorker.maxConcurrentTasks | default 10 }}"
+        - name: WORKER_METRICS_PORT
+          value: "9090"
+        - name: PROMETHEUS_MULTIPROC_DIR
+          value: "/tmp/prometheus_multiproc"
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        # Credentials (GCP, License) loaded from database by RuntimeConfigProvider
+        envFrom:
+        - secretRef:
+            name: qry-backend-secrets
+        {{- include "qry.existingSecretEnvFrom" $ | nindent 8 }}
+        resources:
+          {{- toYaml .Values.qryWorker.resources | nindent 10 }}
+        # qry-worker has no HTTP endpoint. Detect liveness via a heartbeat
+        # file the worker touches every 15s from inside its asyncio loop
+        # (`_heartbeat_loop` in app/worker.py). A stale file means the
+        # event loop is wedged — what we actually care about. `find`
+        # ships in coreutils so no extra packages needed in the image.
+        # mmin -1 = 60s tolerance, well above the 15s touch interval.
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - test -n "$(find /tmp/heartbeat -mmin -1 -type f)"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        # No Service fronts this pod, so readiness gates nothing but it does
+        # tell the rollout (and the audit tools) when the loop is really up.
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - test -n "$(find /tmp/heartbeat -mmin -1 -type f)"
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+{{- end }}

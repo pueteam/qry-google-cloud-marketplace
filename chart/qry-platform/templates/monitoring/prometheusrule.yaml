@@ -1,0 +1,189 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: qry-alerts
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+    release: kube-prometheus-stack
+spec:
+  groups:
+  - name: qry.api
+    rules:
+    - alert: QryHighErrorRate
+      expr: |
+        (
+          sum(rate(qry_http_requests_total{status_code=~"5.."}[5m]))
+          /
+          sum(rate(qry_http_requests_total[5m]))
+        ) > 0.05
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "High HTTP error rate (> 5%)"
+        description: "{{ "{{ $value | humanizePercentage }}" }} of HTTP requests are returning 5xx errors."
+
+    - alert: QryHighLatency
+      expr: |
+        histogram_quantile(0.95, sum(rate(qry_http_request_duration_seconds_bucket[5m])) by (le))
+        > 5
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High API latency (p95 > 5s)"
+        description: "95th percentile API latency is {{ "{{ $value | humanizeDuration }}" }}."
+
+  - name: qry.llm
+    rules:
+    - alert: QryLLMHighErrorRate
+      expr: |
+        (
+          sum by (provider) (rate(qry_llm_requests_total{status="error"}[5m]))
+          /
+          sum by (provider) (rate(qry_llm_requests_total[5m]))
+        ) > 0.10
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "High LLM error rate for {{ "{{ $labels.provider }}" }} (> 10%)"
+        description: "{{ "{{ $value | humanizePercentage }}" }} of LLM requests to {{ "{{ $labels.provider }}" }} are failing."
+
+    - alert: QryLLMHighDailyCost
+      expr: |
+        sum(increase(qry_llm_cost_dollars_total[24h])) > 100
+      for: 1h
+      labels:
+        severity: warning
+      annotations:
+        summary: "High daily LLM cost (> $100)"
+        description: "LLM spending in the last 24h is ${{ "{{ $value | humanize }}" }}."
+
+    - alert: QryLLMRateLimited
+      expr: |
+        sum by (provider) (rate(qry_llm_requests_total{status="rate_limited"}[5m])) > 0
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "LLM rate limiting detected for {{ "{{ $labels.provider }}" }}"
+        description: "Provider {{ "{{ $labels.provider }}" }} is returning 429 rate limit responses."
+
+  - name: qry.openai
+    rules:
+    # The capability matrix in model_configurations.capabilities has drifted
+    # from what the upstream provider actually accepts: requests are being
+    # demoted at runtime. A single demote can be a transient blip, but a
+    # sustained rate means an admin needs to update the row.
+    - alert: QryOpenAICapabilityDegradeSpike
+      expr: |
+        sum by (model, feature) (rate(qry_openai_capability_degrade_total[1h])) > 0.01
+      for: 1h
+      labels:
+        severity: warning
+      annotations:
+        summary: "Capability '{{ "{{ $labels.feature }}" }}' is being auto-degraded for model {{ "{{ $labels.model }}" }}"
+        description: |
+          Auto-degrade rate is {{ "{{ $value | humanize }}" }}/s sustained over 1h.
+          Review model_configurations.capabilities for {{ "{{ $labels.model }}" }} —
+          the flag {{ "{{ $labels.feature }}" }} is likely set True but unsupported
+          by the runner. See docs/llm/openai_capability_matrix.md.
+
+    # The previous_response_id chain on the Responses API is supposed to be
+    # the happy path for long reasoning conversations. If the reset rate
+    # spikes versus hits, something upstream is invalidating chains
+    # (model retention shortened, server-side state lost, etc.).
+    - alert: QryOpenAIResponseChainResetSpike
+      expr: |
+        (
+          sum by (model) (rate(qry_openai_response_chain_resets_total[15m]))
+          /
+          clamp_min(sum by (model) (rate(qry_openai_response_chain_hits_total[15m])), 0.001)
+        ) > 1
+      for: 30m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Response chain resets exceed hits for {{ "{{ $labels.model }}" }}"
+        description: |
+          Chain reset/hit ratio for {{ "{{ $labels.model }}" }} is
+          {{ "{{ $value | humanize }}" }} over the last 15 min sustained 30 min.
+          Conversations are not benefiting from previous_response_id —
+          investigate upstream retention, model changes, or stream errors.
+
+  - name: qry.workers
+    rules:
+    - alert: QryCeleryQueueBacklog
+      expr: qry_celery_queue_length > 50
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Celery queue {{ "{{ $labels.queue }}" }} backlog (> 50 tasks)"
+        description: "Queue {{ "{{ $labels.queue }}" }} has {{ "{{ $value }}" }} pending tasks for over 10 minutes."
+
+    - alert: QryWorkerNotReady
+      expr: |
+        kube_deployment_status_replicas_available{deployment=~"qry-worker|celery-worker.*", namespace="{{ include "qry.namespace" . }}"}
+        <
+        kube_deployment_spec_replicas{deployment=~"qry-worker|celery-worker.*", namespace="{{ include "qry.namespace" . }}"}
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "{{ "{{ $labels.deployment }}" }} has unavailable replicas"
+        description: "Deployment {{ "{{ $labels.deployment }}" }} has fewer ready replicas than desired."
+
+    # A killed prefork child leaves no pod restart and no task error — the pod
+    # stays Running and only the execution row goes quiet. Without this alert
+    # the loss is invisible until someone reads the scheduled-task history.
+    - alert: QryCeleryWorkerLost
+      expr: increase(qry_celery_workers_lost_total[1h]) > 0
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Celery worker killed while running {{ "{{ $labels.task_name }}" }}"
+        description: |
+          A worker process on queue {{ "{{ $labels.queue }}" }} was killed
+          mid-task ({{ "{{ $value | humanize }}" }} in the last hour). Almost
+          always a container OOM kill — check the pod's memory limit against
+          memory.peak and raise it, or lower worker concurrency.
+
+  - name: qry.database
+    rules:
+    - alert: QrySlowQueries
+      expr: |
+        histogram_quantile(0.95, sum(rate(qry_db_query_duration_seconds_bucket[5m])) by (le, datasource_type))
+        > 30
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Slow database queries for {{ "{{ $labels.datasource_type }}" }} (p95 > 30s)"
+        description: "95th percentile query duration for {{ "{{ $labels.datasource_type }}" }} is {{ "{{ $value | humanizeDuration }}" }}."
+
+    - alert: QryStuckIdleInTransaction
+      expr: qry_db_longest_idle_in_transaction_seconds > 900
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "A database transaction has been idle for {{ "{{ $value | humanizeDuration }}" }}"
+        description: >-
+          A connection is holding a transaction open without doing anything. The
+          snapshot it pins stops autovacuum reclaiming any row deleted since it
+          opened, anywhere in the database: one measured at 17h left
+          domain_context_files at 82% dead tuples with a fresh autovacuum
+          timestamp on it. Find it with:
+          SELECT pid, now()-xact_start, query FROM pg_stat_activity
+          WHERE state = 'idle in transaction' ORDER BY xact_start;
+          The query it shows is the LAST one that ran, which is what opened the
+          transaction — not what is stuck. Alerting rather than setting
+          idle_in_transaction_session_timeout is deliberate: a chat turn holds a
+          session for as long as the model streams, and a timeout generous
+          enough not to kill those is too generous to catch a leak.
+{{- end }}

@@ -1,0 +1,43 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: qry-workers
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.qryWorker.labels" . | nindent 4 }}
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: qry-worker
+  podMetricsEndpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+  namespaceSelector:
+    matchNames:
+    - {{ include "qry.namespace" . }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: celery-workers
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.celeryWorker.labels" . | nindent 4 }}
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [celery-worker, celery-worker-heavy]
+  podMetricsEndpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+  namespaceSelector:
+    matchNames:
+    - {{ include "qry.namespace" . }}
+{{- end }}

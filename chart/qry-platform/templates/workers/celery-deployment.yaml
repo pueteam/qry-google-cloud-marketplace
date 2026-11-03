@@ -1,0 +1,131 @@
+{{/*
+Celery workers. Two pools rather than one:
+
+  celery-worker        scheduled_tasks + default — short, latency-sensitive runs
+                       (cron notebooks, chat-triggered work, beat housekeeping)
+  celery-worker-heavy  dataflow + lakeflow — long ETL jobs with hour-scale time
+                       limits and dataframe-sized memory appetites
+
+They shared a pod until an ETL peak pushed the cgroup over its limit and the
+kernel SIGKILLed whichever child was largest — usually a scheduled notebook,
+which then sat in 'running' with nobody left alive to report the failure.
+*/}}
+{{/*
+  `| default dict` guards against --reuse-values upgrades, which render with
+  the previous release's values and none of the new chart's defaults — a key
+  added since that release is absent, and indexing nil aborts the upgrade.
+*/}}
+{{- $workers := list }}
+{{- $general := .Values.celeryWorker | default dict }}
+{{- $heavy := .Values.celeryHeavyWorker | default dict }}
+{{- if $general.enabled }}
+{{- $workers = append $workers (dict "name" "celery-worker" "cfg" $general "queues" (include "qry.celeryWorker.queues" .)) }}
+{{- end }}
+{{- if $heavy.enabled }}
+{{- $workers = append $workers (dict "name" "celery-worker-heavy" "cfg" $heavy "queues" $heavy.queues) }}
+{{- end }}
+{{- range $w := $workers }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $w.name }}
+  namespace: {{ include "qry.namespace" $ }}
+  labels:
+    {{- include "qry.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $w.name }}
+spec:
+  replicas: {{ $w.cfg.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ $w.name }}
+      component: worker
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: {{ $w.name }}
+        component: worker
+        {{- with $.Values.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
+        {{- if $.Values.networkPolicies.enabled }}
+        qry.ixen.ai/trusted: "true"
+        {{- end }}
+      {{- with $.Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "qry.backendPodSecurityContext" $ | nindent 6 }}
+      {{- include "qry.topologySpread" (dict "root" $ "replicas" $w.cfg.replicaCount "labels" (dict "app" $w.name "component" "worker")) | nindent 6 }}
+      serviceAccountName: {{ $w.cfg.serviceAccount.name | default $.Values.celeryWorker.serviceAccount.name | default $.Values.serviceAccount.name }}
+      imagePullSecrets:
+        {{- include "qry.imagePullSecrets" $ | nindent 8 }}
+      containers:
+      - name: {{ $w.name }}
+        image: {{ include "qry.backendImage" $ }}
+        {{- include "qry.backendContainerSecurityContext" $ | nindent 8 }}
+        imagePullPolicy: {{ include "qry.imagePullPolicy" $ }}
+        command:
+        - celery
+        - -A
+        - app.celery_app
+        - worker
+        - --queues={{ $w.queues }}
+        - --concurrency={{ $w.cfg.concurrency }}
+        - --autoscale={{ $w.cfg.autoscale }}
+        - --loglevel=info
+        - --pool=prefork
+        - --time-limit={{ $w.cfg.timeLimit }}
+        - --soft-time-limit={{ $w.cfg.softTimeLimit }}
+        - --max-tasks-per-child={{ $w.cfg.maxTasksPerChild }}
+        ports:
+        - containerPort: 9091
+          name: metrics
+          protocol: TCP
+        env:
+        - name: ENVIRONMENT
+          value: {{ $.Values.global.environment }}
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: C_FORCE_ROOT
+          value: "true"
+        - name: CELERY_METRICS_PORT
+          value: "9091"
+        - name: PROMETHEUS_MULTIPROC_DIR
+          value: "/tmp/prometheus_multiproc"
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        # Credentials (GCP, License) loaded from database by RuntimeConfigProvider
+        envFrom:
+        - secretRef:
+            name: qry-backend-secrets
+        {{- include "qry.existingSecretEnvFrom" $ | nindent 8 }}
+        resources:
+          {{- toYaml $w.cfg.resources | nindent 10 }}
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - celery -A app.celery_app inspect ping --destination "celery@${HOSTNAME}"
+          initialDelaySeconds: 60
+          periodSeconds: 60
+          timeoutSeconds: 30
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - celery -A app.celery_app inspect active --destination "celery@${HOSTNAME}"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 20
+          failureThreshold: 3
+{{- end }}

@@ -1,0 +1,53 @@
+{{- if .Values.cronjobs.licenseUsageSnapshot.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: license-usage-snapshot-job
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cronjob
+spec:
+  schedule: {{ .Values.cronjobs.licenseUsageSnapshot.schedule | quote }}
+  successfulJobsHistoryLimit: {{ .Values.cronjobs.historyLimit.successful }}
+  failedJobsHistoryLimit: {{ .Values.cronjobs.historyLimit.failed }}
+  concurrencyPolicy: {{ .Values.cronjobs.concurrencyPolicy }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: license-usage-snapshot
+            component: cronjob
+            {{- with $.Values.podLabels }}{{- toYaml . | nindent 12 }}{{- end }}
+            {{- if $.Values.networkPolicies.enabled }}
+            qry.ixen.ai/trusted: "true"
+            {{- end }}
+          {{- with $.Values.podAnnotations }}
+          annotations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        spec:
+          {{- include "qry.backendPodSecurityContext" . | nindent 10 }}
+          serviceAccountName: {{ .Values.serviceAccount.name }}
+          restartPolicy: OnFailure
+          imagePullSecrets:
+            {{- include "qry.imagePullSecrets" . | nindent 12 }}
+          containers:
+          - name: license-usage-snapshot
+            image: {{ include "qry.backendImage" . }}
+            {{- include "qry.backendContainerSecurityContext" . | nindent 12 }}
+            imagePullPolicy: {{ include "qry.imagePullPolicy" . }}
+            command:
+            - python
+            - -m
+            - app.license_usage_snapshot_job
+            env:
+            {{- include "qry.commonEnv" . | nindent 12 }}
+            envFrom:
+            - secretRef:
+                name: qry-backend-secrets
+            {{- include "qry.existingSecretEnvFrom" $ | nindent 12 }}
+            resources:
+              {{- toYaml .Values.cronjobs.licenseUsageSnapshot.resources | nindent 14 }}
+{{- end }}

@@ -1,0 +1,25 @@
+{{/*
+One PodDisruptionBudget per multi-replica workload. Each entry renders only
+when that workload's replicaCount is above one (see qry.pdb) AND that workload
+is enabled — a disabled Deployment with the default replicaCount would
+otherwise leave an orphan PDB behind, matching no pods and sitting at 0/1 in
+every dashboard. celery-beat and the telegram bot are single pods by design
+and never get one.
+*/}}
+{{- if .Values.backend.enabled }}
+{{- include "qry.pdb" (dict "root" . "name" "qry-backend" "replicas" .Values.backend.replicaCount "labels" (fromYaml (include "qry.backend.selectorLabels" .))) }}
+{{- end }}
+{{- if .Values.frontend.enabled }}
+{{- include "qry.pdb" (dict "root" . "name" "qry-frontend" "replicas" .Values.frontend.replicaCount "labels" (fromYaml (include "qry.frontend.selectorLabels" .))) }}
+{{- end }}
+{{- if .Values.qryWorker.enabled }}
+{{- include "qry.pdb" (dict "root" . "name" "qry-worker" "replicas" .Values.qryWorker.replicaCount "labels" (fromYaml (include "qry.qryWorker.selectorLabels" .))) }}
+{{- end }}
+{{- $general := .Values.celeryWorker | default dict }}
+{{- if $general.enabled }}
+{{- include "qry.pdb" (dict "root" . "name" "celery-worker" "replicas" $general.replicaCount "labels" (dict "app" "celery-worker" "component" "worker")) }}
+{{- end }}
+{{- $heavy := .Values.celeryHeavyWorker | default dict }}
+{{- if $heavy.enabled }}
+{{- include "qry.pdb" (dict "root" . "name" "celery-worker-heavy" "replicas" $heavy.replicaCount "labels" (dict "app" "celery-worker-heavy" "component" "worker")) }}
+{{- end }}

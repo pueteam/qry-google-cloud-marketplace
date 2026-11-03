@@ -1,0 +1,71 @@
+{{- if and .Values.migrations.enabled (ne .Values.migrations.runAs "initContainer") }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: qry-db-migration
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: qry-migration
+        component: migration
+        {{- with $.Values.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
+        {{- if $.Values.networkPolicies.enabled }}
+        qry.ixen.ai/trusted: "true"
+        {{- end }}
+      {{- with $.Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "qry.backendPodSecurityContext" . | nindent 6 }}
+      restartPolicy: Never
+      imagePullSecrets:
+        {{- include "qry.imagePullSecrets" . | nindent 8 }}
+      containers:
+      - name: alembic
+        image: {{ include "qry.backendImage" . }}
+        {{- include "qry.backendContainerSecurityContext" . | nindent 8 }}
+        imagePullPolicy: {{ include "qry.imagePullPolicy" . }}
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          # set -e is the whole point of this block. Without it a failing
+          # `alembic upgrade head` is followed by an echo that returns 0, the
+          # Job reports Completed, backoffLimit never applies, helm calls the
+          # upgrade a success, and hook-delete-policy: hook-succeeded then
+          # deletes the pod that held the only copy of the error.
+          #
+          # That is not hypothetical: ixenlab's v0.171.0 upgrade left the
+          # database one migration behind while every layer above reported
+          # success, and the reason the cause is unknown is that the pod was
+          # deleted before anyone could read it. The doctor check
+          # `alembic-head-behind-image` is what caught it, after the fact.
+          #
+          # cd is belt and braces - the image's WORKDIR is already /app - but
+          # alembic run from anywhere else fails with "No 'script_location'
+          # key found in configuration", which is precisely the kind of
+          # failure this script used to swallow.
+          set -e
+          cd /app
+          echo "Running database migrations..."
+          alembic upgrade head
+          echo "Migrations completed successfully"
+        env:
+        - name: DATABASE_URL
+          value: {{ include "qry.databaseUrl" . | quote }}
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          {{- toYaml .Values.migrations.resources | nindent 10 }}
+{{- end }}

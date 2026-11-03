@@ -1,0 +1,350 @@
+global:
+  namespace: ''
+  environment: production
+  storageClass: ''
+image:
+  registry: europe-southwest1-docker.pkg.dev
+  project: pue-madrid
+  repository: puedata
+  tag: v0.199.1
+  pullPolicy: IfNotPresent
+imagePullSecret:
+  create: false
+  name: gcr-json-key
+postgresql:
+  enabled: true
+  image:
+    registry: ''
+    repository: pgvector/pgvector
+    tag: 0.8.7-pg18
+  external:
+    host: ''
+    port: 5432
+    sslMode: ''
+  auth:
+    database: qrydb
+    username: postgres
+    password: ''
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: ''
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+redis:
+  enabled: true
+  image:
+    registry: ''
+    repository: redis
+    tag: 7-alpine
+  external:
+    host: ''
+    port: 6379
+    password: ''
+    tls: false
+    db: 0
+  auth:
+    password: ''
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+backend:
+  enabled: true
+  replicaCount: 1
+  image:
+    name: qry-backend
+    tag: ''
+    full: ''
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  env:
+    ENVIRONMENT: production
+    LOG_LEVEL: INFO
+    CORS_ORIGINS: ''
+    ENABLE_KUBERNETES_EXECUTOR: 'false'
+    TRUSTED_PROXY_CIDRS: ''
+  startupProbe:
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+  livenessProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    initialDelaySeconds: 45
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 3
+  secrets:
+    secretKey: ''
+    existingSecret: ''
+backendSecurity:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+availability:
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  topologySpread:
+    enabled: true
+    maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+redisSecurity:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+frontendSecurity:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+frontend:
+  enabled: true
+  replicaCount: 1
+  image:
+    name: qry-frontend
+    tag: ''
+    full: ''
+  service:
+    type: ClusterIP
+    port: 8080
+    nodePort: 30080
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+celeryWorker:
+  enabled: true
+  replicaCount: 2
+  image:
+    name: qry-backend
+    tag: ''
+  queues: scheduled_tasks,default,dataflow,lakeflow
+  concurrency: 2
+  autoscale: 2,1
+  timeLimit: 600
+  softTimeLimit: 540
+  maxTasksPerChild: 25
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 4Gi
+  serviceAccount:
+    name: ''
+celeryHeavyWorker:
+  enabled: true
+  replicaCount: 1
+  queues: dataflow,lakeflow
+  concurrency: 1
+  autoscale: 1,1
+  timeLimit: 11400
+  softTimeLimit: 11100
+  maxTasksPerChild: 10
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 6Gi
+  serviceAccount:
+    name: ''
+celeryBeat:
+  enabled: true
+  image:
+    name: qry-backend
+    tag: ''
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+qryWorker:
+  enabled: true
+  replicaCount: 2
+  image:
+    name: qry-backend
+    tag: ''
+  maxConcurrentTasks: 10
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+telegramBot:
+  enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi
+pythonExecution:
+  enabled: true
+  namespace: python-execution
+  singleNamespace: true
+  serviceAccountName: python-executor-sa
+  serviceAccountAnnotations: {}
+  rbac:
+    create: false
+  manageSharedResources: false
+  networkPolicies:
+    enabled: false
+smokeTest:
+  enabled: true
+migrations:
+  enabled: true
+  runAs: initContainer
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+cronjobs:
+  enablePgvector:
+    enabled: false
+  licenseUsageSnapshot:
+    enabled: true
+    schedule: 0 1 * * *
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        cpu: 200m
+        memory: 512Mi
+  schemaRefresh:
+    enabled: true
+    schedule: 0 2 * * *
+    cacheTtlSeconds: 90000
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  batchProfiling:
+    enabled: false
+    schedule: 0 3 * * *
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  conversationSummary:
+    enabled: true
+    schedule: 0 4 * * *
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  historyLimit:
+    successful: 3
+    failed: 3
+  concurrencyPolicy: Forbid
+ingress:
+  enabled: false
+  className: traefik
+  annotations: {}
+  hosts:
+  - host: qry.example.com
+    paths:
+    - path: /
+      pathType: Prefix
+      backend: frontend
+    - path: /api
+      pathType: Prefix
+      backend: backend
+  tls: []
+monitoring:
+  enabled: false
+serviceAccount:
+  create: false
+  name: qry-backend-sa
+  annotations: {}
+runtimeImages:
+  pythonExecutor: ''
+  pythonSession: ''
+  gcsfuseSidecar: ''
+  mountpointS3Sidecar: ''
+podLabels: {}
+podAnnotations: {}
+networkPolicies:
+  enabled: true
+bootstrap:
+  setupCode: ''
+googleMarketplace:
+  enabled: true
+  partnerId: ''
+  productId: ''
+  partnerName: IXEN
+  reportingSecret: ''
+  billing:
+    serviceName: ''
+    metric: instance_time
+    intervalSeconds: 60
+    image: gcr.io/cloud-marketplace-tools/metering/ubbagent:0.2.18

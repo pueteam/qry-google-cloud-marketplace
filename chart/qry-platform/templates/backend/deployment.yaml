@@ -1,0 +1,126 @@
+{{- if .Values.backend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qry-backend
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.backend.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "qry.backend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "qry.backend.selectorLabels" . | nindent 8 }}
+        {{- with $.Values.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
+        {{- if $.Values.networkPolicies.enabled }}
+        qry.ixen.ai/trusted: "true"
+        {{- end }}
+      {{- with $.Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "qry.backendPodSecurityContext" . | nindent 6 }}
+      {{- include "qry.topologySpread" (dict "root" . "replicas" .Values.backend.replicaCount "labels" (fromYaml (include "qry.backend.selectorLabels" .))) | nindent 6 }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      imagePullSecrets:
+        {{- include "qry.imagePullSecrets" . | nindent 8 }}
+      {{- if and .Values.migrations.enabled (eq .Values.migrations.runAs "initContainer") }}
+      # Migrations before the backend starts, instead of a post-install Helm
+      # hook: installers that apply rendered manifests (Google's marketplace
+      # deployer) do not run hooks as Helm does. Several replicas are safe:
+      # alembic takes an advisory lock, and the one that misses it fails and
+      # is retried, finding the database already at head.
+      initContainers:
+      - name: migrations
+        image: {{ include "qry.backendImage" . }}
+        {{- include "qry.backendContainerSecurityContext" . | nindent 8 }}
+        imagePullPolicy: {{ include "qry.imagePullPolicy" . }}
+        command: ["/bin/sh", "-c", "set -e; cd /app; alembic upgrade head"]
+        envFrom:
+        - secretRef:
+            name: qry-backend-secrets
+        {{- include "qry.existingSecretEnvFrom" $ | nindent 8 }}
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          {{- toYaml .Values.migrations.resources | nindent 10 }}
+      {{- end }}
+      containers:
+      - name: qry-backend
+        image: {{ include "qry.backendImage" . }}
+        {{- include "qry.backendContainerSecurityContext" . | nindent 8 }}
+        imagePullPolicy: {{ include "qry.imagePullPolicy" . }}
+        ports:
+        - containerPort: 8000
+        # Credentials (GCP, License) loaded from database by RuntimeConfigProvider
+        envFrom:
+        - secretRef:
+            name: qry-backend-secrets
+        {{- include "qry.existingSecretEnvFrom" $ | nindent 8 }}
+        env:
+        # Downward API: lets runtime_manager derive a per-tenant backend URL
+        # when BACKEND_INTERNAL_URL is not pinned in the secret.
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        {{- if .Values.bootstrap.setupCode }}
+        volumeMounts:
+        - name: bootstrap
+          mountPath: /var/run/secrets/qry
+          readOnly: true
+        {{- end }}
+        resources:
+          {{- toYaml .Values.backend.resources | nindent 10 }}
+        # Startup gate. Backend init (license validation, config load, domain
+        # agents, scheduler, pub/sub listeners) has been measured at ~105s,
+        # while the liveness budget is initialDelay + failureThreshold*period
+        # — ~90s with the defaults below. Slower-than-usual startups were
+        # therefore killed mid-boot, right after logging "Application startup
+        # complete", and the pod restart-looped until a warm start beat the
+        # clock. While a startupProbe is running liveness is suspended, so
+        # this decouples "how long may booting take" from "how fast must a
+        # hung process be caught".
+        #
+        # `default dict`: this key is new, and --reuse-values upgrades render
+        # with the previous release's values, where it doesn't exist yet.
+        {{- $startup := .Values.backend.startupProbe | default dict }}
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 8000
+          periodSeconds: {{ $startup.periodSeconds | default 10 }}
+          timeoutSeconds: {{ $startup.timeoutSeconds | default 5 }}
+          failureThreshold: {{ $startup.failureThreshold | default 30 }}
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8000
+          initialDelaySeconds: {{ .Values.backend.livenessProbe.initialDelaySeconds | default 30 }}
+          periodSeconds: {{ .Values.backend.livenessProbe.periodSeconds | default 10 }}
+          timeoutSeconds: {{ .Values.backend.livenessProbe.timeoutSeconds | default 5 }}
+          failureThreshold: {{ .Values.backend.livenessProbe.failureThreshold | default 3 }}
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8000
+          initialDelaySeconds: {{ .Values.backend.readinessProbe.initialDelaySeconds | default 20 }}
+          periodSeconds: {{ .Values.backend.readinessProbe.periodSeconds | default 10 }}
+          timeoutSeconds: {{ .Values.backend.readinessProbe.timeoutSeconds | default 10 }}
+          failureThreshold: {{ .Values.backend.readinessProbe.failureThreshold | default 3 }}
+      {{- if .Values.bootstrap.setupCode }}
+      volumes:
+      - name: bootstrap
+        secret:
+          secretName: qry-bootstrap
+          items:
+          - key: setup-code
+            path: setup-code
+      {{- end }}
+{{- end }}

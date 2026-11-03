@@ -1,0 +1,16 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.postgres.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "qry.postgres.selectorLabels" . | nindent 4 }}
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP
+{{- end }}

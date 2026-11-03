@@ -1,0 +1,151 @@
+{{- if and .Values.pythonExecution.enabled .Values.pythonExecution.manageSharedResources (dig "networkPolicies" "enabled" false .Values.pythonExecution) }}
+{{- /* Deny-all covers the whole namespace: in one namespace it would cut off
+       Qry itself. The executor policy below still confines the executor pods. */}}
+{{- if not .Values.pythonExecution.singleNamespace }}
+---
+# Default deny-all for python-execution namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: {{ include "qry.pythonExecution.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+{{- end }}
+---
+# Allow executor pods HTTPS egress to public internet + reach any qry-backend
+# (selector matches qry-backend pods regardless of tenant namespace, so a single
+# policy serves multi-tenant deployments).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: executor-network-policy
+  namespace: {{ include "qry.pythonExecution.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+    app.kubernetes.io/name: executor-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: python-executor
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 169.254.20.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app: qry-backend
+      ports:
+        - protocol: TCP
+          port: 8000
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+---
+# Allow session pods HTTPS egress + ingress/egress with any qry-backend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: session-network-policy
+  namespace: {{ include "qry.pythonExecution.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+    app.kubernetes.io/name: session-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: python-session
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow session ingress from qry-backend, qry-worker and celery-worker.
+    # qry-worker and celery-worker poll the session /health endpoint to
+    # transition the runtime DB row from "starting" to "running"; without
+    # this the runtime stays in "starting" and scheduled notebook tasks
+    # time out at 300s.
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app: qry-backend
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app: qry-worker
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app: celery-worker
+        # Lakeflow 'python' tasks run on the heavy pool and poll the same
+        # /health endpoint.
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app: celery-worker-heavy
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 169.254.20.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app: qry-backend
+      ports:
+        - protocol: TCP
+          port: 8000
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}

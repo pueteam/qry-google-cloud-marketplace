@@ -1,0 +1,112 @@
+{{- if and .Values.smokeTest.enabled .Values.backend.enabled }}
+# Checks a running installation from outside Qry: `helm test <release>` runs it
+# after any install, and Google's Marketplace verification runs it as the
+# tester (its deployer turns a `test` hook into one). Runs the backend's own
+# image, so no other image has to be published, and carries no trusted label:
+# it is any pod in the namespace, which is the point of the Redis check.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-smoke-test
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: smoke-test
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  {{- include "qry.backendPodSecurityContext" . | nindent 2 }}
+  imagePullSecrets:
+    {{- include "qry.imagePullSecrets" . | nindent 4 }}
+  containers:
+  - name: smoke-test
+    image: {{ include "qry.backendImage" . }}
+    {{- include "qry.backendContainerSecurityContext" . | nindent 4 }}
+    imagePullPolicy: {{ include "qry.imagePullPolicy" . }}
+    env:
+    - name: BACKEND
+      value: "http://qry-backend:{{ .Values.backend.service.port }}"
+    - name: FRONTEND
+      value: {{ ternary (printf "http://qry-frontend:%v" .Values.frontend.service.port) "" .Values.frontend.enabled | quote }}
+    - name: OWN_REDIS
+      value: {{ ternary "redis" "" (and .Values.redis.enabled (not (include "qry.redisExternal" .))) | quote }}
+    command: ["python", "-c"]
+    args:
+    - |
+      import json, os, socket, sys, time, urllib.request
+
+      failed = []
+
+      def check(name, fn):
+          try:
+              fn()
+              print(f"ok    {name}")
+          except Exception as e:
+              print(f"FAIL  {name}: {e}")
+              failed.append(name)
+
+      def get(url, timeout=10):
+          with urllib.request.urlopen(url, timeout=timeout) as r:
+              return r.status, r.read()
+
+      def ready():
+          # A fresh install runs its migrations first; applied with kubectl, this
+          # pod starts at the same time as the rest.
+          deadline = time.time() + 600
+          last = None
+          while True:
+              try:
+                  status, _ = get(os.environ["BACKEND"] + "/health/ready")
+                  if status == 200:
+                      return
+                  last = f"HTTP {status}"
+              except Exception as e:
+                  last = e
+              if time.time() > deadline:
+                  raise RuntimeError(f"/health/ready did not answer 200 in 10 minutes ({last})")
+              time.sleep(5)
+
+      def api():
+          _, body = get(os.environ["BACKEND"] + "/api/setup/status")
+          if not isinstance(json.loads(body).get("setup_required"), bool):
+              raise RuntimeError(f"unexpected answer: {body[:200]!r}")
+
+      def frontend():
+          status, body = get(os.environ["FRONTEND"] + "/")
+          if status != 200 or b"<html" not in body.lower():
+              raise RuntimeError(f"HTTP {status}, no page")
+
+      def redis_needs_password():
+          # Either the network policy keeps this pod out, or Redis asks for a
+          # password; answering PING to anyone is the failure.
+          try:
+              s = socket.create_connection((os.environ["OWN_REDIS"], 6379), timeout=5)
+          except OSError:
+              return
+          with s:
+              s.settimeout(5)
+              s.sendall(b"PING\r\n")
+              try:
+                  reply = s.recv(64)
+              except OSError:
+                  return
+          if reply.startswith(b"+PONG"):
+              raise RuntimeError("Redis answers without a password")
+
+      check("backend ready (database and Redis)", ready)
+      check("API answers", api)
+      if os.environ["FRONTEND"]:
+          check("web interface served", frontend)
+      if os.environ["OWN_REDIS"]:
+          check("Redis refuses a pod without its password", redis_needs_password)
+      sys.exit(1 if failed else 0)
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+{{- end }}

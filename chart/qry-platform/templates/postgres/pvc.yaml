@@ -1,0 +1,21 @@
+{{- if .Values.postgresql.enabled }}
+{{- if .Values.postgresql.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.postgres.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- $storageClass := .Values.postgresql.persistence.storageClass | default (include "qry.storageClass" .) }}
+  {{- if $storageClass }}
+  storageClassName: {{ $storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.postgresql.persistence.size }}
+{{- end }}
+{{- end }}

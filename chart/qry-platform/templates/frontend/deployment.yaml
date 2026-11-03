@@ -1,0 +1,62 @@
+{{- if .Values.frontend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qry-frontend
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.frontend.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "qry.frontend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "qry.frontend.selectorLabels" . | nindent 8 }}
+        {{- with $.Values.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
+      {{- with $.Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "qry.topologySpread" (dict "root" . "replicas" .Values.frontend.replicaCount "labels" (fromYaml (include "qry.frontend.selectorLabels" .))) | nindent 6 }}
+      {{- with .Values.frontendSecurity.pod }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Never talks to the Kubernetes API; don't hand it a token (issue #407).
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        {{- include "qry.imagePullSecrets" . | nindent 8 }}
+      containers:
+      - name: qry-frontend
+        image: {{ include "qry.frontendImage" . }}
+        imagePullPolicy: {{ include "qry.imagePullPolicy" . }}
+        {{- with .Values.frontendSecurity.container }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        ports:
+        - containerPort: 8080
+        env:
+        - name: API_URL
+          value: http://qry-backend:{{ .Values.backend.service.port }}
+        - name: API_HOST
+          value: qry-backend
+        resources:
+          {{- toYaml .Values.frontend.resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 20
+          periodSeconds: 5
+{{- end }}

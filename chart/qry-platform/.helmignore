@@ -1,0 +1,18 @@
+# Patterns to ignore when building packages.
+.DS_Store
+.git/
+.gitignore
+.idea/
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+.project
+.settings/
+*.tmproj
+.vscode/
+
+# Internal deployment values - not for distribution
+values-lab.yaml
+values-production.yaml

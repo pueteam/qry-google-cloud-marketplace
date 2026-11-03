@@ -1,0 +1,88 @@
+{{- /*
+Who may reach Qry's data and its notebook sessions. Code a person runs (chat
+Python, notebooks) can open connections to anything on the cluster network;
+without these policies that included the chart's Redis, which has no password
+unless redis.auth.password is set (measured on ixenlab: a notebook connected to
+Redis and PostgreSQL). Only ingress is restricted, so notebooks keep reaching
+the backend (the qry module, callbacks), PyPI and the customer's own sources.
+Needs a CNI that enforces NetworkPolicy.
+*/}}
+{{- if .Values.networkPolicies.enabled }}
+{{- if .Values.redis.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qry-redis-from-qry
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "qry.redis.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          qry.ixen.ai/trusted: "true"
+    ports:
+    - protocol: TCP
+      port: 6379
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qry-postgres-from-qry
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "qry.postgres.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          qry.ixen.ai/trusted: "true"
+    ports:
+    - protocol: TCP
+      port: 5432
+{{- end }}
+{{- if .Values.pythonExecution.enabled }}
+---
+# The pods this installation starts to run code (notebook sessions, warm pool,
+# chat jobs, ML training) answer only its backend and workers. They carry
+# qry.ixen.ai/installation (runtime_config.installation_labels), so the policy
+# selects this installation's pods only: python-execution can be shared by
+# several installations (GKE Autopilot), and selecting every session there cut
+# the others' backends off from theirs. Code running there (no trusted label,
+# and no token that could create a pod with one) is never admitted. Pods
+# started before 0.200 carry no such label and stay open until they restart.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qry-sessions-from-qry-{{ include "qry.namespace" . }}
+  namespace: {{ include "qry.pythonExecution.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      qry.ixen.ai/installation: {{ include "qry.namespace" . | quote }}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ include "qry.namespace" . }}
+      podSelector:
+        matchLabels:
+          qry.ixen.ai/trusted: "true"
+{{- end }}
+{{- end }}

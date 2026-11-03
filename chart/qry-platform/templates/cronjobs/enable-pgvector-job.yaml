@@ -1,0 +1,43 @@
+{{- /* Only for the chart's own PostgreSQL: on a managed server the extension
+       is allow-listed by its administrator and created by the migrations. */}}
+{{- if and .Values.cronjobs.enablePgvector.enabled (not (include "qry.postgresExternal" .)) }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: enable-pgvector
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgvector-init
+  annotations:
+    "helm.sh/hook": post-install
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: enable-pgvector
+        {{- if .Values.networkPolicies.enabled }}
+        # The PostgreSQL policy admits only trusted pods (measured: without
+        # this the job waited for a server it could not reach).
+        qry.ixen.ai/trusted: "true"
+        {{- end }}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: psql
+        image: {{ include "qry.thirdPartyImage" .Values.postgresql.image }}
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "Waiting for PostgreSQL to be ready..."
+          until pg_isready -h postgres -p 5432 -U {{ .Values.postgresql.auth.username }}; do
+            echo "PostgreSQL not ready, waiting..."
+            sleep 2
+          done
+          echo "PostgreSQL is ready, enabling pgvector..."
+          psql {{ include "qry.databaseUrlStandard" . }} -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          echo "pgvector extension enabled successfully"
+{{- end }}

@@ -1,0 +1,401 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Qry platform chart values",
+  "description": "Checked by Helm on install, upgrade, template and lint. Lenient on purpose: keys it does not list are allowed, so existing installations' values keep rendering; it checks the types and choices that, when wrong, break an install quietly. Marketplace install forms are built from it.",
+  "type": "object",
+  "definitions": {
+    "image": {
+      "type": "object",
+      "properties": {
+        "registry": {
+          "type": "string"
+        },
+        "repository": {
+          "type": "string"
+        },
+        "tag": {
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      }
+    },
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "replicas": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "properties": {
+    "global": {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "type": "string",
+          "description": "Namespace for the application; empty uses the release's namespace (helm install -n ...)."
+        },
+        "environment": {
+          "type": "string"
+        },
+        "storageClass": {
+          "type": "string"
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "registry": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "repository": {
+          "type": "string"
+        },
+        "tag": {
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      }
+    },
+    "postgresql": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Run PostgreSQL in the chart; false uses postgresql.external."
+        },
+        "image": {
+          "$ref": "#/definitions/image"
+        },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "database": {
+              "type": "string",
+              "minLength": 1
+            },
+            "username": {
+              "type": "string",
+              "minLength": 1
+            },
+            "password": {
+              "type": "string"
+            }
+          }
+        },
+        "external": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string"
+            },
+            "port": {
+              "$ref": "#/definitions/port"
+            },
+            "sslMode": {
+              "type": "string",
+              "enum": [
+                "",
+                "disable",
+                "allow",
+                "prefer",
+                "require",
+                "verify-ca",
+                "verify-full"
+              ],
+              "description": "TLS to a managed server: require for Azure Flexible Server and Cloud SQL."
+            }
+          }
+        }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Run Redis in the chart; false uses redis.external."
+        },
+        "image": {
+          "$ref": "#/definitions/image"
+        },
+        "external": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string"
+            },
+            "port": {
+              "$ref": "#/definitions/port"
+            },
+            "password": {
+              "type": "string"
+            },
+            "tls": {
+              "type": "boolean",
+              "description": "rediss://, as Azure Managed Redis requires."
+            },
+            "db": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "password": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "backend": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "replicaCount": {
+          "$ref": "#/definitions/replicas"
+        },
+        "secrets": {
+          "type": "object",
+          "properties": {
+            "secretKey": {
+              "type": "string"
+            },
+            "existingSecret": {
+              "type": "string"
+            }
+          }
+        },
+        "image": {
+          "type": "object",
+          "properties": {
+            "full": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "frontend": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "replicaCount": {
+          "$ref": "#/definitions/replicas"
+        },
+        "service": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "ClusterIP",
+                "NodePort",
+                "LoadBalancer"
+              ]
+            },
+            "port": {
+              "$ref": "#/definitions/port"
+            }
+          }
+        },
+        "image": {
+          "type": "object",
+          "properties": {
+            "full": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "celeryWorker": {
+      "type": "object",
+      "properties": {
+        "replicaCount": {
+          "$ref": "#/definitions/replicas"
+        }
+      }
+    },
+    "qryWorker": {
+      "type": "object",
+      "properties": {
+        "replicaCount": {
+          "$ref": "#/definitions/replicas"
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "className": {
+          "type": "string"
+        },
+        "annotations": {
+          "$ref": "#/definitions/stringMap"
+        }
+      }
+    },
+    "pythonExecution": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "serviceAccountName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "serviceAccountAnnotations": {
+          "$ref": "#/definitions/stringMap"
+        },
+        "singleNamespace": {
+          "type": "boolean",
+          "description": "Run Python in Qry's own namespace (marketplaces install into one)."
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "annotations": {
+          "$ref": "#/definitions/stringMap"
+        }
+      }
+    },
+    "runtimeImages": {
+      "type": "object",
+      "description": "Images Qry starts at run time; empty keeps the versions built into the backend image.",
+      "properties": {
+        "pythonExecutor": {
+          "type": "string"
+        },
+        "pythonSession": {
+          "type": "string"
+        },
+        "gcsfuseSidecar": {
+          "type": "string"
+        },
+        "mountpointS3Sidecar": {
+          "type": "string"
+        }
+      }
+    },
+    "podLabels": {
+      "$ref": "#/definitions/stringMap"
+    },
+    "podAnnotations": {
+      "$ref": "#/definitions/stringMap"
+    },
+    "networkPolicies": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Only Qry's pods reach its Redis, PostgreSQL and notebook sessions."
+        }
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "runAs": {
+          "type": "string",
+          "enum": [
+            "job",
+            "initContainer"
+          ]
+        }
+      }
+    },
+    "bootstrap": {
+      "type": "object",
+      "properties": {
+        "setupCode": {
+          "type": "string",
+          "description": "One-time code to create the first administrator (12 characters or more); empty writes one to the backend log.",
+          "anyOf": [
+            {
+              "maxLength": 0
+            },
+            {
+              "minLength": 14
+            }
+          ]
+        }
+      }
+    },
+    "googleMarketplace": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "partnerId": {
+          "type": "string"
+        },
+        "productId": {
+          "type": "string"
+        },
+        "partnerName": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

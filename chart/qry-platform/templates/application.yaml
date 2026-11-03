@@ -1,0 +1,51 @@
+{{- if .Values.googleMarketplace.enabled }}
+apiVersion: app.k8s.io/v1beta1
+kind: Application
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}
+  annotations:
+    marketplace.cloud.google.com/deploy-info: '{"partner_id": "{{ .Values.googleMarketplace.partnerId }}", "product_id": "{{ .Values.googleMarketplace.productId }}", "partner_name": "{{ .Values.googleMarketplace.partnerName }}"}'
+spec:
+  descriptor:
+    type: Qry
+    version: {{ .Chart.AppVersion | quote }}
+    description: Qry - ask your data in plain language, governed.
+    links:
+    - description: Documentation
+      url: https://docs.qry.dev
+    notes: |-
+      Open Qry and create its first administrator with the setup code
+      {{- if .Values.bootstrap.setupCode }} shown below (Secret qry-bootstrap, key setup-code).{{ else }} from the backend's log:
+      kubectl logs deploy/qry-backend -n {{ include "qry.namespace" . }} | grep "setup code"{{ end }}
+  {{- if .Values.bootstrap.setupCode }}
+  info:
+  - name: First-run setup code
+    type: Reference
+    valueFrom:
+      secretKeyRef:
+        name: qry-bootstrap
+        key: setup-code
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  addOwnerRef: true
+  componentKinds:
+  - group: v1
+    kind: Service
+  - group: apps/v1
+    kind: Deployment
+  - group: apps/v1
+    kind: StatefulSet
+  - group: v1
+    kind: Secret
+  - group: v1
+    kind: PersistentVolumeClaim
+  - group: batch/v1
+    kind: CronJob
+  - group: networking.k8s.io/v1
+    kind: NetworkPolicy
+{{- end }}

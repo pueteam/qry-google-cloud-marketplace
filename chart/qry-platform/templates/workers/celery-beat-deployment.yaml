@@ -1,0 +1,95 @@
+{{- if .Values.celeryBeat.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-beat
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.celeryBeat.labels" . | nindent 4 }}
+spec:
+  # IMPORTANT: Beat scheduler is a singleton - only 1 replica allowed
+  replicas: 1
+  strategy:
+    # Recreate ensures only one instance runs during updates
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "qry.celeryBeat.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "qry.celeryBeat.selectorLabels" . | nindent 8 }}
+        {{- with $.Values.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
+        {{- if $.Values.networkPolicies.enabled }}
+        qry.ixen.ai/trusted: "true"
+        {{- end }}
+      {{- with $.Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "qry.backendPodSecurityContext" . | nindent 6 }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      # beat only schedules; the tasks that create pods run on celery-worker.
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        {{- include "qry.imagePullSecrets" . | nindent 8 }}
+      containers:
+      - name: celery-beat
+        image: {{ include "qry.backendImage" . }}
+        {{- include "qry.backendContainerSecurityContext" . | nindent 8 }}
+        imagePullPolicy: {{ include "qry.imagePullPolicy" . }}
+        command:
+        - celery
+        - -A
+        - app.celery_app
+        - beat
+        - --loglevel=info
+        env:
+        - name: ENVIRONMENT
+          value: {{ .Values.global.environment }}
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: C_FORCE_ROOT
+          value: "true"
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        # Credentials (GCP, License) loaded from database by RuntimeConfigProvider
+        envFrom:
+        - secretRef:
+            name: qry-backend-secrets
+        {{- include "qry.existingSecretEnvFrom" $ | nindent 8 }}
+        resources:
+          {{- toYaml .Values.celeryBeat.resources | nindent 10 }}
+        # Liveness probe: verify a celery process exists.
+        #
+        # Trade-off documented: this is a presence check, not a health
+        # check — it does not detect a beat scheduler that's wedged but
+        # whose process is alive. The fully-idiomatic alternative is a
+        # custom Scheduler subclass that touches /tmp/heartbeat in
+        # tick(). For now beat's loop is simple enough (no I/O, no LLM
+        # calls, no DB writes outside the shelf) that real deadlocks
+        # are rare. Revisit if we see silent-stuck-beat incidents.
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "python -c \"import os; exit(0 if any('celery' in open(f'/proc/{p}/cmdline').read() for p in os.listdir('/proc') if p.isdigit()) else 1)\""
+          initialDelaySeconds: 30
+          periodSeconds: 60
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "python -c \"import os; exit(0 if any('celery' in open(f'/proc/{p}/cmdline').read() for p in os.listdir('/proc') if p.isdigit()) else 1)\""
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+{{- end }}

@@ -1,0 +1,13 @@
+{{- if and .Values.pythonExecution.enabled .Values.pythonExecution.manageSharedResources (not .Values.pythonExecution.singleNamespace) }}
+# Namespace for isolated Python code execution.
+# Created only by the primary release (manageSharedResources=true).
+# Tenant releases set manageSharedResources=false and reuse the existing namespace.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "qry.pythonExecution.namespace" . }}
+  labels:
+    {{- include "qry.labels" . | nindent 4 }}
+    name: {{ include "qry.pythonExecution.namespace" . }}
+    environment: {{ .Values.global.environment }}
+{{- end }}
