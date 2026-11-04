@@ -6,7 +6,7 @@ image:
   registry: europe-southwest1-docker.pkg.dev
   project: pue-madrid
   repository: puedata
-  tag: v0.200.3
+  tag: v0.201.0
   pullPolicy: IfNotPresent
 imagePullSecret:
   create: false
@@ -78,7 +78,6 @@ backend:
     ENVIRONMENT: production
     LOG_LEVEL: INFO
     CORS_ORIGINS: ''
-    ENABLE_KUBERNETES_EXECUTOR: 'false'
     TRUSTED_PROXY_CIDRS: ''
   startupProbe:
     periodSeconds: 10
@@ -337,6 +336,7 @@ networkPolicies:
   enabled: true
 bootstrap:
   setupCode: ''
+  publicUrl: ''
 googleMarketplace:
   enabled: true
   partnerId: ''

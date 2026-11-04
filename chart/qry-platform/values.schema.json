@@ -377,6 +377,10 @@
               "minLength": 14
             }
           ]
+        },
+        "publicUrl": {
+          "type": "string",
+          "description": "Address people reach Qry at, offered to the first-run screen as the public URL; empty uses the first ingress host."
         }
       }
     },

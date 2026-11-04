@@ -72,7 +72,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        {{- if .Values.bootstrap.setupCode }}
+        {{- if or .Values.bootstrap.setupCode (include "qry.publicUrl" .) }}
         volumeMounts:
         - name: bootstrap
           mountPath: /var/run/secrets/qry
@@ -116,13 +116,19 @@ spec:
           periodSeconds: {{ .Values.backend.readinessProbe.periodSeconds | default 10 }}
           timeoutSeconds: {{ .Values.backend.readinessProbe.timeoutSeconds | default 10 }}
           failureThreshold: {{ .Values.backend.readinessProbe.failureThreshold | default 3 }}
-      {{- if .Values.bootstrap.setupCode }}
+      {{- if or .Values.bootstrap.setupCode (include "qry.publicUrl" .) }}
       volumes:
       - name: bootstrap
         secret:
           secretName: qry-bootstrap
           items:
+          {{- if .Values.bootstrap.setupCode }}
           - key: setup-code
             path: setup-code
+          {{- end }}
+          {{- if include "qry.publicUrl" . }}
+          - key: public-url
+            path: public-url
+          {{- end }}
       {{- end }}
 {{- end }}

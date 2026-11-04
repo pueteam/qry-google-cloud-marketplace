@@ -589,6 +589,20 @@ restart it and drop its queues. Truncated hashes: nothing to read back.
 {{- include (print $.Template.BasePath "/secrets/backend-secrets.yaml") . | sha256sum | trunc 16 | quote -}}
 {{- end }}
 
+{{/*
+The address people reach Qry at, offered to the first-run screen as a default:
+bootstrap.publicUrl, else the first ingress host (https when it has a tls entry).
+Empty when neither is set; the setup screen then proposes the browser's address.
+*/}}
+{{- define "qry.publicUrl" -}}
+{{- if .Values.bootstrap.publicUrl -}}
+{{- .Values.bootstrap.publicUrl | trimSuffix "/" -}}
+{{- else if and .Values.ingress.enabled .Values.ingress.hosts -}}
+{{- $host := (index .Values.ingress.hosts 0).host -}}
+{{- if .Values.ingress.tls -}}https{{- else -}}http{{- end -}}://{{ $host }}
+{{- end -}}
+{{- end }}
+
 {{- define "qry.redisPasswordChecksum" -}}
 {{- include "qry.resolvePasswords" . -}}
 {{- .Values.redis.auth.password | default "" | sha256sum | trunc 16 | quote -}}
