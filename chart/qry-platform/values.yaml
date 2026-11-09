@@ -6,7 +6,7 @@ image:
   registry: europe-southwest1-docker.pkg.dev
   project: pue-madrid
   repository: puedata
-  tag: v0.202.2
+  tag: v0.202.3
   pullPolicy: IfNotPresent
 imagePullSecret:
   create: false
@@ -31,7 +31,7 @@ postgresql:
     storageClass: ''
   resources:
     requests:
-      cpu: 500m
+      cpu: 250m
       memory: 2Gi
     limits:
       cpu: 2000m
@@ -69,7 +69,7 @@ backend:
     port: 8000
   resources:
     requests:
-      cpu: 500m
+      cpu: 250m
       memory: 1Gi
     limits:
       cpu: 2000m
@@ -155,7 +155,7 @@ frontend:
     nodePort: 30080
   resources:
     requests:
-      cpu: 200m
+      cpu: 100m
       memory: 256Mi
     limits:
       cpu: 1000m
@@ -174,7 +174,7 @@ celeryWorker:
   maxTasksPerChild: 25
   resources:
     requests:
-      cpu: 250m
+      cpu: 100m
       memory: 1Gi
     limits:
       cpu: 1000m
@@ -192,7 +192,7 @@ celeryHeavyWorker:
   maxTasksPerChild: 10
   resources:
     requests:
-      cpu: 250m
+      cpu: 100m
       memory: 1Gi
     limits:
       cpu: 2000m
@@ -220,7 +220,7 @@ qryWorker:
   maxConcurrentTasks: 10
   resources:
     requests:
-      cpu: 500m
+      cpu: 250m
       memory: 1Gi
     limits:
       cpu: 2000m
