@@ -65,12 +65,24 @@ Full image path for a component
 Usage: {{ include "qry.image" (dict "component" .Values.backend "global" .Values) }}
 */}}
 {{- define "qry.image" -}}
-{{- $registry := .global.image.registry }}
-{{- $project := .global.image.project }}
-{{- $repository := .global.image.repository }}
-{{- $name := .component.image.name }}
 {{- $tag := .component.image.tag | default .global.image.tag }}
-{{- printf "%s/%s/%s/%s:%s" $registry $project $repository $name $tag }}
+{{- printf "%s:%s" (include "qry.imagePath" (dict "image" .global.image "name" .component.image.name)) $tag }}
+{{- end }}
+
+{{/*
+registry/project/repository/name with the empty parts left out: Artifact
+Registry has all four (europe-southwest1-docker.pkg.dev/pue-madrid/puedata/
+qry-backend), registry.qry.dev has two (registry.qry.dev/qry/qry-backend:
+registry registry.qry.dev, project qry, repository ""). With every part
+joined, an empty one gave "registry.qry.dev/qry//qry-backend", so the only
+way to pull from there was image.full, which also froze the tag.
+*/}}
+{{- define "qry.imagePath" -}}
+{{- $parts := list -}}
+{{- range (list .image.registry .image.project .image.repository .name) -}}
+{{- if . }}{{ $parts = append $parts . }}{{ end -}}
+{{- end -}}
+{{- join "/" $parts -}}
 {{- end }}
 
 {{/*
@@ -83,7 +95,7 @@ Backend image
 {{- .Values.backend.image.full }}
 {{- else -}}
 {{- $tag := .Values.backend.image.tag | default .Values.image.tag }}
-{{- printf "%s/%s/%s/%s:%s" .Values.image.registry .Values.image.project .Values.image.repository .Values.backend.image.name $tag }}
+{{- printf "%s:%s" (include "qry.imagePath" (dict "image" .Values.image "name" .Values.backend.image.name)) $tag }}
 {{- end -}}
 {{- end }}
 
@@ -95,7 +107,7 @@ Frontend image
 {{- .Values.frontend.image.full }}
 {{- else -}}
 {{- $tag := .Values.frontend.image.tag | default .Values.image.tag }}
-{{- printf "%s/%s/%s/%s:%s" .Values.image.registry .Values.image.project .Values.image.repository .Values.frontend.image.name $tag }}
+{{- printf "%s:%s" (include "qry.imagePath" (dict "image" .Values.image "name" .Values.frontend.image.name)) $tag }}
 {{- end -}}
 {{- end }}
 

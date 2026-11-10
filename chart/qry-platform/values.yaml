@@ -6,7 +6,7 @@ image:
   registry: europe-southwest1-docker.pkg.dev
   project: pue-madrid
   repository: puedata
-  tag: v0.202.4
+  tag: v0.203.0
   pullPolicy: IfNotPresent
 imagePullSecret:
   create: false
@@ -328,6 +328,7 @@ serviceAccount:
   name: qry-backend-sa
   annotations: {}
 runtimeImages:
+  registry: ''
   pythonExecutor: ''
   pythonSession: ''
   gcsfuseSidecar: ''
