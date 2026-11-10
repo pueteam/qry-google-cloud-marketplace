@@ -5,8 +5,8 @@ description: |
   Complete deployment including backend, frontend, workers, and supporting services.
 
 type: application
-version: 0.204.0
-appVersion: "0.204.0"
+version: 0.204.1
+appVersion: "0.204.1"
 
 home: https://qry.dev
 icon: https://qry.dev/favicon.svg
