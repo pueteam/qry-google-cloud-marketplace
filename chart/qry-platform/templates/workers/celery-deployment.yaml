@@ -78,12 +78,17 @@ spec:
         - worker
         - --queues={{ $w.queues }}
         - --concurrency={{ $w.cfg.concurrency }}
-        - --autoscale={{ $w.cfg.autoscale }}
+        {{- with $w.cfg.autoscale }}
+        - --autoscale={{ . }}
+        {{- end }}
         - --loglevel=info
         - --pool=prefork
         - --time-limit={{ $w.cfg.timeLimit }}
         - --soft-time-limit={{ $w.cfg.softTimeLimit }}
         - --max-tasks-per-child={{ $w.cfg.maxTasksPerChild }}
+        {{- with $w.cfg.maxMemoryPerChildKb }}
+        - --max-memory-per-child={{ int64 . }}
+        {{- end }}
         ports:
         - containerPort: 9091
           name: metrics
@@ -110,12 +115,19 @@ spec:
         {{- include "qry.existingSecretEnvFrom" $ | nindent 8 }}
         resources:
           {{- toYaml $w.cfg.resources | nindent 10 }}
+        # The consumer touches /tmp/celery_heartbeat every 15 s from the
+        # worker's event loop (LivenessHeartbeat in app/celery_app.py) and
+        # removes it when it loses the broker. Read with stat: the old
+        # `celery inspect` probes started a whole Python process importing the
+        # app three times a minute. Without the file (starting, broker lost,
+        # or an image older than the chart) they fall back to `celery inspect`,
+        # so a chart upgraded ahead of its image does not restart-loop.
         livenessProbe:
           exec:
             command:
             - /bin/sh
             - -c
-            - celery -A app.celery_app inspect ping --destination "celery@${HOSTNAME}"
+            - 'F=/tmp/celery_heartbeat; if [ -f $F ]; then [ $(( $(date +%s) - $(stat -c %Y $F) )) -lt 120 ]; else celery -A app.celery_app inspect ping --destination "celery@${HOSTNAME}"; fi'
           initialDelaySeconds: 60
           periodSeconds: 60
           timeoutSeconds: 30
@@ -125,7 +137,7 @@ spec:
             command:
             - /bin/sh
             - -c
-            - celery -A app.celery_app inspect active --destination "celery@${HOSTNAME}"
+            - 'F=/tmp/celery_heartbeat; if [ -f $F ]; then [ $(( $(date +%s) - $(stat -c %Y $F) )) -lt 60 ]; else celery -A app.celery_app inspect active --destination "celery@${HOSTNAME}"; fi'
           initialDelaySeconds: 30
           periodSeconds: 30
           timeoutSeconds: 20

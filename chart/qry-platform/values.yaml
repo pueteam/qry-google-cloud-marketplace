@@ -6,7 +6,7 @@ image:
   registry: europe-southwest1-docker.pkg.dev
   project: pue-madrid
   repository: puedata
-  tag: v0.202.3
+  tag: v0.202.4
   pullPolicy: IfNotPresent
 imagePullSecret:
   create: false
@@ -168,10 +168,11 @@ celeryWorker:
     tag: ''
   queues: scheduled_tasks,default,dataflow,lakeflow
   concurrency: 2
-  autoscale: 2,1
+  autoscale: ''
   timeLimit: 600
   softTimeLimit: 540
-  maxTasksPerChild: 25
+  maxTasksPerChild: 500
+  maxMemoryPerChildKb: 1200000
   resources:
     requests:
       cpu: 100m
@@ -186,10 +187,11 @@ celeryHeavyWorker:
   replicaCount: 1
   queues: dataflow,lakeflow
   concurrency: 1
-  autoscale: 1,1
+  autoscale: ''
   timeLimit: 11400
   softTimeLimit: 11100
   maxTasksPerChild: 10
+  maxMemoryPerChildKb: 3000000
   resources:
     requests:
       cpu: 100m
