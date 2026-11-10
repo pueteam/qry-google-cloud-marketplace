@@ -1,0 +1,16 @@
+{{- if .Values.postgresql.enabled }}
+# Run by the postgres image on an empty data directory only (a new install).
+# The backend's readiness needs the `vector` type, and the migrations that
+# create it run as a post-install hook - after `helm install --wait` has waited
+# for that readiness - so without this a new install never finished.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-initdb
+  namespace: {{ include "qry.namespace" . }}
+  labels:
+    {{- include "qry.postgres.labels" . | nindent 4 }}
+data:
+  01-vector.sql: |
+    CREATE EXTENSION IF NOT EXISTS vector;
+{{- end }}

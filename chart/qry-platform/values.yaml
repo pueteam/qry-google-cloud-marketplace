@@ -6,7 +6,7 @@ image:
   registry: europe-southwest1-docker.pkg.dev
   project: pue-madrid
   repository: puedata
-  tag: v0.203.0
+  tag: v0.204.0
   pullPolicy: IfNotPresent
 imagePullSecret:
   create: false
@@ -152,7 +152,7 @@ frontend:
   service:
     type: ClusterIP
     port: 8080
-    nodePort: 30080
+    nodePort: ''
   resources:
     requests:
       cpu: 100m

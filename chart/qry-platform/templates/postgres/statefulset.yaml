@@ -37,8 +37,11 @@ spec:
           value: {{ .Values.postgresql.auth.password | quote }}
         - name: PGDATA
           value: /var/lib/postgresql/data/pgdata
-        {{- if .Values.postgresql.persistence.enabled }}
         volumeMounts:
+        - name: initdb
+          mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
+        {{- if .Values.postgresql.persistence.enabled }}
         - name: postgres-storage
           mountPath: /var/lib/postgresql/data
         {{- end }}
@@ -60,8 +63,11 @@ spec:
             - {{ .Values.postgresql.auth.username }}
           initialDelaySeconds: 5
           periodSeconds: 5
-      {{- if .Values.postgresql.persistence.enabled }}
       volumes:
+      - name: initdb
+        configMap:
+          name: postgres-initdb
+      {{- if .Values.postgresql.persistence.enabled }}
       - name: postgres-storage
         persistentVolumeClaim:
           claimName: postgres-pvc

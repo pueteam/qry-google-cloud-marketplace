@@ -619,3 +619,37 @@ Empty when neither is set; the setup screen then proposes the browser's address.
 {{- include "qry.resolvePasswords" . -}}
 {{- .Values.redis.auth.password | default "" | sha256sum | trunc 16 | quote -}}
 {{- end }}
+
+{{/*
+The image pull secret's .dockerconfigjson, base64. The password is trimmed:
+a license passed with --set-file keeps the file's final newline, and
+containerd then refuses the Authorization header ("invalid header field
+value") and every pull fails.
+*/}}
+{{- define "qry.dockerConfigJson" -}}
+{{- $s := .Values.imagePullSecret -}}
+{{- $password := $s.dockerPassword | trim -}}
+{{- $auth := dict "username" $s.dockerUsername "password" $password "email" $s.dockerEmail "auth" (printf "%s:%s" $s.dockerUsername $password | b64enc) -}}
+{{- dict "auths" (dict $s.dockerServer $auth) | toJson | b64enc -}}
+{{- end }}
+
+{{/*
+The pull secret's annotations and data. The backend writes the license saved
+in Admin > License into the secret's `license` entries and marks it with
+qry.dev/registry-license (app/services/registry_pull_secret.py); a marked
+secret is kept as it is, or every helm upgrade would put back the license the
+chart was installed with. Unmarked (a new install, a service-account key): from
+values. Call with (dict "root" $ "namespace" <ns>).
+*/}}
+{{- define "qry.pullSecretFields" -}}
+{{- $root := .root -}}
+{{- $live := lookup "v1" "Secret" .namespace $root.Values.imagePullSecret.name | default dict -}}
+{{- $synced := dig "metadata" "annotations" "qry.dev/registry-license" "" $live -}}
+{{- if and $synced (dig "data" ".dockerconfigjson" "" $live) }}
+metadata_annotations:
+  qry.dev/registry-license: {{ $synced | quote }}
+dockerconfigjson: {{ index $live.data ".dockerconfigjson" }}
+{{- else }}
+dockerconfigjson: {{ include "qry.dockerConfigJson" $root }}
+{{- end }}
+{{- end }}
