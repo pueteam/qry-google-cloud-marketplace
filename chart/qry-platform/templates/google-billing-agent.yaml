@@ -1,13 +1,16 @@
 {{- /*
 Google Cloud Marketplace usage reporting for a plan billed by Google: Google's
-metering agent (ubbagent) sends installation time to Service Control, as
-Google's billing integration guide describes. Its own Deployment with one
-replica and Recreate: a sidecar on the backend would report once per backend
-replica, and a rolling update would briefly run two. It talks to Google only:
-no AGENT_LOCAL_PORT, so its HTTP API (which takes usage reports from anyone
-who reaches it) never starts - in a marketplace installation people's code
-runs in the same namespace and could have raised the customer's bill - and a
-network policy admits no connection to it.
+metering agent (ubbagent) forwards usage to Service Control, keeps it on disk
+and retries, as Google's billing integration guide describes. Two metrics:
+`active_users`, people who used Qry for the first time this month, posted every
+hour by the reporter beside it (services/marketplace/metering.py), and
+`instance_time`, a heartbeat of installation time priced at 0 and kept so the
+plan can price it later. One pod, one replica, Recreate: a sidecar on the
+backend would report once per replica, and a rolling update would briefly run
+two. The agent's HTTP API listens on the pod's localhost only and takes reports
+from whoever reaches it, so the only other container here is the reporter
+(the backend image); people's code never runs in this pod and a network policy
+admits no connection to it.
 */}}
 {{- $g := .Values.googleMarketplace }}
 {{- if and $g.enabled $g.reportingSecret $g.billing.serviceName }}
@@ -26,6 +29,12 @@ data:
       gcp:
         encodedServiceAccountKey: $AGENT_ENCODED_KEY
     metrics:
+    - name: {{ $g.billing.usersMetric }}
+      type: int
+      endpoints:
+      - name: on_disk
+      - name: servicecontrol
+      passthrough: {}
     - name: {{ $g.billing.metric }}
       type: int
       endpoints:
@@ -71,6 +80,8 @@ spec:
       labels:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: billing-agent
+        # The reporter reads PostgreSQL, which admits Qry's own pods.
+        qry.ixen.ai/trusted: "true"
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -86,6 +97,8 @@ spec:
           value: /etc/ubbagent/config.yaml
         - name: AGENT_STATE_DIR
           value: /var/lib/ubbagent
+        - name: AGENT_LOCAL_PORT
+          value: {{ $g.billing.port | quote }}
         - name: AGENT_ENCODED_KEY
           valueFrom:
             secretKeyRef:
@@ -111,6 +124,38 @@ spec:
           mountPath: /etc/ubbagent
         - name: state
           mountPath: /var/lib/ubbagent
+      - name: reporter
+        image: {{ include "qry.backendImage" . }}
+        {{- include "qry.backendContainerSecurityContext" . | nindent 8 }}
+        imagePullPolicy: {{ include "qry.imagePullPolicy" . }}
+        command: ["python", "-m", "app.marketplace_reporter"]
+        envFrom:
+        - secretRef:
+            name: qry-backend-secrets
+        {{- include "qry.existingSecretEnvFrom" $ | nindent 8 }}
+        env:
+        - name: QRY_BILLING_AGENT_URL
+          value: {{ printf "http://localhost:%v" $g.billing.port | quote }}
+        # Google's answer on the entitlement comes from Service Control itself
+        # with the reporting key, not from the agent (metering.py).
+        - name: QRY_MARKETPLACE_REPORTING_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $g.reportingSecret }}
+              key: reporting-key
+        - name: QRY_MARKETPLACE_CONSUMER_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ $g.reportingSecret }}
+              key: consumer-id
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            cpu: 10m
+            memory: 192Mi
+          limits:
+            memory: 512Mi
       volumes:
       - name: config
         configMap:

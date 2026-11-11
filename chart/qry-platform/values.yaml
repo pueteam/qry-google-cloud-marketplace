@@ -6,7 +6,7 @@ image:
   registry: europe-southwest1-docker.pkg.dev
   project: pue-madrid
   repository: puedata
-  tag: v0.204.1
+  tag: v0.205.0
   pullPolicy: IfNotPresent
 imagePullSecret:
   create: false
@@ -263,7 +263,7 @@ cronjobs:
   enablePgvector:
     enabled: false
   licenseUsageSnapshot:
-    enabled: true
+    enabled: false
     schedule: 0 1 * * *
     resources:
       requests:
@@ -273,7 +273,7 @@ cronjobs:
         cpu: 200m
         memory: 512Mi
   schemaRefresh:
-    enabled: true
+    enabled: false
     schedule: 0 2 * * *
     cacheTtlSeconds: 90000
     resources:
@@ -294,7 +294,7 @@ cronjobs:
         cpu: 500m
         memory: 1Gi
   conversationSummary:
-    enabled: true
+    enabled: false
     schedule: 0 4 * * *
     resources:
       requests:
@@ -347,7 +347,9 @@ googleMarketplace:
   partnerName: IXEN
   reportingSecret: ''
   billing:
-    serviceName: ''
+    serviceName: qry.endpoints.ixen-qry-public.cloud.goog
+    usersMetric: active_users
     metric: instance_time
     intervalSeconds: 60
+    port: 4567
     image: gcr.io/cloud-marketplace-tools/metering/ubbagent:0.2.18

@@ -72,6 +72,17 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        {{- $g := .Values.googleMarketplace }}
+        {{- if and $g.enabled $g.reportingSecret $g.billing.serviceName }}
+        # The Google Cloud Marketplace entitlement this installation bills to:
+        # shown in Admin > License, and what a support list may be bound to.
+        - name: QRY_MARKETPLACE_ENTITLEMENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ $g.reportingSecret }}
+              key: entitlement-id
+              optional: true
+        {{- end }}
         {{- if or .Values.bootstrap.setupCode (include "qry.publicUrl" .) }}
         volumeMounts:
         - name: bootstrap
