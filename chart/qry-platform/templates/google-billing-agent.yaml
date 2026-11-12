@@ -4,8 +4,8 @@ metering agent (ubbagent) forwards usage to Service Control, keeps it on disk
 and retries, as Google's billing integration guide describes. Two metrics:
 `active_users`, people who used Qry for the first time this month, posted every
 hour by the reporter beside it (services/marketplace/metering.py), and
-`instance_time`, a heartbeat of installation time priced at 0 and kept so the
-plan can price it later. One pod, one replica, Recreate: a sidecar on the
+`instance_time`, a heartbeat of installation time, priced at 0.01 USD an hour
+(Google refuses a metric priced at 0). One pod, one replica, Recreate: a sidecar on the
 backend would report once per replica, and a rolling update would briefly run
 two. The agent's HTTP API listens on the pod's localhost only and takes reports
 from whoever reaches it, so the only other container here is the reporter

@@ -21,7 +21,7 @@ kubectl apply -f "https://raw.githubusercontent.com/GoogleCloudPlatform/marketpl
 
 export APP_INSTANCE_NAME=qry
 export NAMESPACE=qry
-export TAG=0.206.0                              # this repository's version (set at each release)
+export TAG=0.207.0                              # this repository's version (set at each release)
 export REGISTRY=marketplace.gcr.io/ixen/qry     # the listing's registry
 
 kubectl create namespace "$NAMESPACE"
@@ -65,8 +65,15 @@ The manifest holds the secrets too: delete it, or keep it where
 Redis refuses a pod without its password.
 
 Open it with `kubectl port-forward -n "$NAMESPACE" svc/qry-frontend 8080:8080`
-and `http://localhost:8080`; create the first administrator with `SETUP_CODE`,
-then add the license IXEN sent you in **Admin › License**.
+and `http://localhost:8080`; create the first administrator with `SETUP_CODE`.
+
+With the plan billed by Google the subscription is the license, billed per
+monthly active user, and there is nothing to add. The command line needs the
+reporting key the console would create: in the listing choose **Deploy via
+command line** and **Generate license key**, `kubectl apply -n "$NAMESPACE"`
+the downloaded file, and add `--set googleMarketplace.reportingSecret=<its
+Secret's name>` to the `helm template` command. A license file from IXEN, pasted
+in **Admin › License**, takes precedence. Terms: [qry.dev/eula](https://qry.dev/eula).
 
 ## Support
 
