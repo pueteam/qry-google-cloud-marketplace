@@ -21,7 +21,7 @@ kubectl apply -f "https://raw.githubusercontent.com/GoogleCloudPlatform/marketpl
 
 export APP_INSTANCE_NAME=qry
 export NAMESPACE=qry
-export TAG=0.208.0                              # this repository's version (set at each release)
+export TAG=0.208.1                              # this repository's version (set at each release)
 export REGISTRY=marketplace.gcr.io/ixen/qry     # the listing's registry
 
 kubectl create namespace "$NAMESPACE"
