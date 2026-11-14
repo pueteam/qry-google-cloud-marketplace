@@ -44,8 +44,6 @@ spec:
     kind: Secret
   - group: v1
     kind: PersistentVolumeClaim
-  - group: batch/v1
-    kind: CronJob
   - group: networking.k8s.io/v1
     kind: NetworkPolicy
 {{- end }}

@@ -304,8 +304,6 @@ Only infrastructure connectivity env vars are needed here:
   value: {{ include "qry.databaseUrl" . | quote }}
 - name: REDIS_URL
   value: {{ include "qry.redisUrl" . | quote }}
-- name: SCHEMA_REFRESH_INTERVAL
-  value: {{ .Values.cronjobs.schemaRefresh.cacheTtlSeconds | default 90000 | quote }}
 {{- end }}
 
 {{/*

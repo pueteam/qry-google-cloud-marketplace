@@ -6,7 +6,7 @@ image:
   registry: europe-southwest1-docker.pkg.dev
   project: pue-madrid
   repository: puedata
-  tag: v0.208.1
+  tag: v0.208.2
   pullPolicy: IfNotPresent
 imagePullSecret:
   create: false
@@ -262,51 +262,6 @@ migrations:
 cronjobs:
   enablePgvector:
     enabled: false
-  licenseUsageSnapshot:
-    enabled: false
-    schedule: 0 1 * * *
-    resources:
-      requests:
-        cpu: 50m
-        memory: 256Mi
-      limits:
-        cpu: 200m
-        memory: 512Mi
-  schemaRefresh:
-    enabled: false
-    schedule: 0 2 * * *
-    cacheTtlSeconds: 90000
-    resources:
-      requests:
-        cpu: 100m
-        memory: 512Mi
-      limits:
-        cpu: 500m
-        memory: 1Gi
-  batchProfiling:
-    enabled: false
-    schedule: 0 3 * * *
-    resources:
-      requests:
-        cpu: 100m
-        memory: 512Mi
-      limits:
-        cpu: 500m
-        memory: 1Gi
-  conversationSummary:
-    enabled: false
-    schedule: 0 4 * * *
-    resources:
-      requests:
-        cpu: 100m
-        memory: 512Mi
-      limits:
-        cpu: 500m
-        memory: 1Gi
-  historyLimit:
-    successful: 3
-    failed: 3
-  concurrencyPolicy: Forbid
 ingress:
   enabled: false
   className: traefik
