@@ -6,7 +6,7 @@ image:
   registry: europe-southwest1-docker.pkg.dev
   project: pue-madrid
   repository: puedata
-  tag: v0.208.3
+  tag: v0.208.4
   pullPolicy: IfNotPresent
 imagePullSecret:
   create: false
