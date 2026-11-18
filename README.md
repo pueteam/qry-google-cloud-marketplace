@@ -14,6 +14,12 @@ administrator, the license, backups, updates, scaling and uninstalling - is at
 You need `gcloud`, `kubectl`, `helm` 3 and `openssl`, and a GKE cluster that
 enforces network policies (Dataplane V2).
 
+**GKE Autopilot clusters install this way.** The listing's *Click to deploy*
+form shows Autopilot clusters as ineligible ("Autopilot cluster integration with
+marketplace is in progress"). That is Google's, for every Kubernetes app in the
+Marketplace; Qry itself runs on Autopilot. Choose **Deploy via command line**
+and follow the steps below.
+
 ```bash
 gcloud container clusters get-credentials CLUSTER --region REGION
 # Google's Application resource, once per cluster:
@@ -21,7 +27,7 @@ kubectl apply -f "https://raw.githubusercontent.com/GoogleCloudPlatform/marketpl
 
 export APP_INSTANCE_NAME=qry
 export NAMESPACE=qry
-export TAG=0.210.2                              # this repository's version (set at each release)
+export TAG=0.210.3                              # this repository's version (set at each release)
 export REGISTRY=marketplace.gcr.io/ixen/qry     # the listing's registry
 
 kubectl create namespace "$NAMESPACE"
@@ -70,9 +76,13 @@ and `http://localhost:8080`; create the first administrator with `SETUP_CODE`.
 With the plan billed by Google the subscription is the license, billed per
 monthly active user, and there is nothing to add. The command line needs the
 reporting key the console would create: in the listing choose **Deploy via
-command line** and **Generate license key**, `kubectl apply -n "$NAMESPACE"`
-the downloaded file, and add `--set googleMarketplace.reportingSecret=<its
-Secret's name>` to the `helm template` command. A license file from IXEN, pasted
+command line** and **Download service account key**, `kubectl apply -n
+"$NAMESPACE"` the downloaded `service-account-key.yaml` before the manifest, and
+add `--set googleMarketplace.reportingSecret=<its Secret's name>` (the
+`metadata.name` in that file) to the `helm template` command. If the download
+fails with "service account ... does not exist", the account was just created
+and Google has not finished setting it up: reload the page, pick that account in
+**Reporting service account** and download again. A license file from IXEN, pasted
 in **Admin › License**, takes precedence. Terms: [qry.dev/eula](https://qry.dev/eula).
 
 ## Support
